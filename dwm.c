@@ -36,6 +36,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xproto.h>
 #include <X11/Xutil.h>
+#include <X11/XKBlib.h>
 #ifdef XINERAMA
 #include <X11/extensions/Xinerama.h>
 #endif /* XINERAMA */
@@ -305,6 +306,8 @@ static Display *dpy;
 static Drw *drw;
 static Monitor *mons, *selmon;
 static Window root, wmcheckwin;
+static int xkbEventBase;
+static int last_xkb_group = -1;
 
 /* configuration, allows nested code to access above variables */
 #include "config.h"
@@ -1355,6 +1358,8 @@ mappingnotify(XEvent *e)
 {
 	XMappingEvent *ev = &e->xmapping;
 
+  fprintf(stderr, "MappingNotify: request=%d\n", ev->request);
+
 	XRefreshKeyboardMapping(ev);
 	if (ev->request == MappingKeyboard)
 		grabkeys();
@@ -1704,9 +1709,33 @@ run(void)
 	/* main event loop */
 	XSync(dpy, False); // дождаться выполнения всех запланированных в X11 операций
   // дождаться события. Как поступит - передать обработчику, взяв его из handler
-	while (running && !XNextEvent(dpy, &ev))
+	while (running && !XNextEvent(dpy, &ev)) {
+        FILE *f = fopen("~/tmp/dwm-debug.log", "a");
+        if (f) {
+          fprintf(f, "ev.type=%d\n", ev.type);
+          fclose(f);
+        }
+
+    if (ev.type >= xkbEventBase && ev.type < xkbEventBase + XkbNumberEvents) {
+
+        
+      XkbEvent *xkbev = (XkbEvent *)&ev;
+
+      if (xkbev->any.xkb_type == XkbStateNotify) {
+        int group = xkbev->state.group;
+
+        
+
+        if (group != last_xkb_group) {
+              last_xkb_group = group;
+              system("kill -SIGRTMIN+2 $(pidof dwmblocks)");
+          }
+        }
+        continue;
+    }
 		if (handler[ev.type])
 			handler[ev.type](&ev); /* call handler */
+  }
 }
 
 void
@@ -1874,7 +1903,7 @@ setup(void)
 	Atom utf8string;
 	struct sigaction sa;
 
-	/* do not transform children into zombies when they terminate */
+  	/* do not transform children into zombies when they terminate */
 	sigemptyset(&sa.sa_mask);
 	sa.sa_flags = SA_NOCLDSTOP | SA_NOCLDWAIT | SA_RESTART;
 	sa.sa_handler = SIG_IGN;
@@ -1928,12 +1957,29 @@ setup(void)
 	scheme[LENGTH(colors)] = drw_scm_create(drw, colors[0], 3);
 	for (i = 0; i < LENGTH(colors); i++)
 		scheme[i] = drw_scm_create(drw, colors[i], 3);
+
 	/* init system tray */
 	updatesystray();
 	/* init bars */
 	updatebars();
 	updatestatus();
 	updatebarpos(selmon);
+
+  /* Подписка на XKB StateNotify */
+  int xkbErrorBase;
+  int major = XkbMajorVersion, minor = XkbMinorVersion;
+
+  if (!XkbQueryExtension(dpy, NULL, &xkbEventBase,
+                       &xkbErrorBase, &major, &minor)) {
+    fprintf(stderr, "dwm: XKB extension not available\n");
+  } else {
+    XkbSelectEventDetails(dpy, XkbUseCoreKbd,
+        XkbStateNotify,
+        XkbGroupStateMask,
+        XkbGroupStateMask);
+  }
+
+
 	/* supporting window for NetWMCheck */
 	wmcheckwin = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
 	XChangeProperty(dpy, wmcheckwin, netatom[NetWMCheck], XA_WINDOW, 32,
