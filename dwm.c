@@ -1696,12 +1696,14 @@ restack(Monitor *m)
 	while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
 }
 
+// главный цикл
 void
 run(void)
 {
 	XEvent ev;
 	/* main event loop */
-	XSync(dpy, False);
+	XSync(dpy, False); // дождаться выполнения всех запланированных в X11 операций
+  // дождаться события. Как поступит - передать обработчику, взяв его из handler
 	while (running && !XNextEvent(dpy, &ev))
 		if (handler[ev.type])
 			handler[ev.type](&ev); /* call handler */
@@ -2706,6 +2708,7 @@ zoom(const Arg *arg)
 	pop(c);
 }
 
+// точка входа.
 int
 main(int argc, char *argv[])
 {
@@ -2715,18 +2718,18 @@ main(int argc, char *argv[])
 		die("usage: dwm [-v]");
 	if (!setlocale(LC_CTYPE, "") || !XSupportsLocale())
 		fputs("warning: no locale support\n", stderr);
-	if (!(dpy = XOpenDisplay(NULL)))
+	if (!(dpy = XOpenDisplay(NULL))) // подключается к X11
 		die("dwm: cannot open display");
-	checkotherwm();
-	setup();
+	checkotherwm(); // проверяет, не запущен ли другой wm
+	setup(); // создает мониторы, панель, шрифты, курсоры и т.д.
 #ifdef __OpenBSD__
 	if (pledge("stdio rpath proc exec", NULL) == -1)
 		die("pledge");
 #endif /* __OpenBSD__ */
-	scan();
-	run();
-	cleanup();
-	XCloseDisplay(dpy);
+	scan(); // сканирует существующие окна в root-окне и добавляет их как клиенты (если они есть)
+	run(); // главный цикл
+	cleanup(); // удаляет ресурсы
+	XCloseDisplay(dpy); // Отключается от X11
 	return EXIT_SUCCESS;
 }
 
