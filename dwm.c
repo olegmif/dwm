@@ -20,6 +20,7 @@
  *
  * To understand everything else, start reading main().
  */
+#include <fcntl.h>
 #include <errno.h>
 #include <locale.h>
 #include <signal.h>
@@ -268,6 +269,8 @@ static int xerrorstart(Display *dpy, XErrorEvent *ee);
 static void zoom(const Arg *arg);
 static void bstack(Monitor *m);
 static void bstackhoriz(Monitor *m);
+static void dbg(const char *msg);
+
 
 /* variables */
 static Systray *systray = NULL;
@@ -1710,21 +1713,12 @@ run(void)
 	XSync(dpy, False); // дождаться выполнения всех запланированных в X11 операций
   // дождаться события. Как поступит - передать обработчику, взяв его из handler
 	while (running && !XNextEvent(dpy, &ev)) {
-        FILE *f = fopen("~/tmp/dwm-debug.log", "a");
-        if (f) {
-          fprintf(f, "ev.type=%d\n", ev.type);
-          fclose(f);
-        }
-
     if (ev.type >= xkbEventBase && ev.type < xkbEventBase + XkbNumberEvents) {
 
-        
       XkbEvent *xkbev = (XkbEvent *)&ev;
 
       if (xkbev->any.xkb_type == XkbStateNotify) {
         int group = xkbev->state.group;
-
-        
 
         if (group != last_xkb_group) {
               last_xkb_group = group;
@@ -2841,3 +2835,13 @@ bstackhoriz(Monitor *m) {
 	}
 }
 
+static void
+dbg(const char *msg)
+{
+    int fd = open("/home/oleg/tmp/dwm-debug.log", O_WRONLY|O_CREAT|O_APPEND, 0644);
+    if (fd < 0) return;
+
+    write(fd, msg, strlen(msg));
+    write(fd, "\n", 1);
+    close(fd);
+}
