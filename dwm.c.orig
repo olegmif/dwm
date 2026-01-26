@@ -20,6 +20,7 @@
  *
  * To understand everything else, start reading main().
  */
+#include <fcntl.h>
 #include <errno.h>
 #include <locale.h>
 #include <signal.h>
@@ -36,6 +37,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xproto.h>
 #include <X11/Xutil.h>
+#include <X11/XKBlib.h>
 #ifdef XINERAMA
 #include <X11/extensions/Xinerama.h>
 #endif /* XINERAMA */
@@ -163,12 +165,6 @@ struct Systray {
 	Client *icons;
 };
 
-typedef struct Systray   Systray;
-struct Systray {
-	Window win;
-	Client *icons;
-};
-
 /* function declarations */
 static void applyrules(Client *c);
 static int applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact);
@@ -273,11 +269,13 @@ static int xerrorstart(Display *dpy, XErrorEvent *ee);
 static void zoom(const Arg *arg);
 static void bstack(Monitor *m);
 static void bstackhoriz(Monitor *m);
+static void dbg(const char *msg);
+
 
 /* variables */
 static Systray *systray = NULL;
 static const char broken[] = "broken";
-static char stext[256];
+static char stext[1024];
 static int screen;
 static int sw, sh;           /* X display screen geometry width, height */
 static int bh;               /* bar height */
@@ -311,6 +309,8 @@ static Display *dpy;
 static Drw *drw;
 static Monitor *mons, *selmon;
 static Window root, wmcheckwin;
+static int xkbEventBase;
+static int last_xkb_group = -1;
 
 /* configuration, allows nested code to access above variables */
 #include "config.h"
@@ -547,8 +547,11 @@ cleanup(void)
 
 	for (i = 0; i < CurLast; i++)
 		drw_cur_free(drw, cursor[i]);
-	for (i = 0; i < LENGTH(colors); i++)
-		drw_scm_free(drw, scheme[i], 3);
+	for (i = 0; i < LENGTH(colors) +1; i++)
+    // здесь расхождение с diff
+    // там должно быть free(scheme[i]);
+		// drw_scm_free(drw, scheme[i], 3);
+    free(scheme[i]);
 	free(scheme);
 	XDestroyWindow(dpy, wmcheckwin);
 	drw_free(drw);
@@ -825,6 +828,116 @@ dirtomon(int dir)
 	return m;
 }
 
+int
+drawstatusbar(Monitor *m, int bh, char* stext) {
+	int ret, i, w, x, len;
+  short isCode = 0;
+	char *text;
+	char *p;
+
+	len = strlen(stext) + 1 ;
+	if (!(text = (char*) malloc(sizeof(char)*len)))
+		die("malloc");
+	p = text;
+	memcpy(text, stext, len);
+
+	/* compute width of the status text */
+	w = 0;
+	i = -1;
+	while (text[++i]) {
+		if (text[i] == '^') {
+			if (!isCode) {
+				isCode = 1;
+				text[i] = '\0';
+				w += TEXTW(text) - lrpad;
+				text[i] = '^';
+				if (text[++i] == 'f')
+					w += atoi(text + ++i);
+			} else {
+				isCode = 0;
+				text = text + i + 1;
+				i = -1;
+			}
+		}
+	}
+	if (!isCode)
+		w += TEXTW(text) - lrpad;
+	else
+		isCode = 0;
+	text = p;
+
+	w += lrpad; /* 1px padding on both sides */
+	ret = m->ww - w;
+	x = m->ww - w - getsystraywidth();
+
+	drw_setscheme(drw, scheme[LENGTH(colors)]);
+	drw->scheme[ColFg] = scheme[SchemeNorm][ColFg];
+	drw->scheme[ColBg] = scheme[SchemeNorm][ColBg];
+	drw_rect(drw, x - 2 * sp, 0, w, bh, 1, 1);
+	x += lrpad / 2;
+
+	/* process status text */
+	i = -1;
+	while (text[++i]) {
+		if (text[i] == '^' && !isCode) {
+			isCode = 1;
+
+			text[i] = '\0';
+			w = TEXTW(text) - lrpad;
+			drw_text(drw, x - 2 * sp, vp / 2, w, bh - vp, 0, text, 0);
+
+			x += w;
+
+			/* process code */
+			while (text[++i] != '^') {
+				if (text[i] == 'c') {
+					char buf[8];
+					memcpy(buf, (char*)text+i+1, 7);
+					buf[7] = '\0';
+					drw_clr_create(drw, &drw->scheme[ColFg], buf);
+					i += 7;
+				} else if (text[i] == 'b') {
+					char buf[8];
+					memcpy(buf, (char*)text+i+1, 7);
+					buf[7] = '\0';
+					drw_clr_create(drw, &drw->scheme[ColBg], buf);
+					i += 7;
+				} else if (text[i] == 'd') {
+					drw->scheme[ColFg] = scheme[SchemeNorm][ColFg];
+					drw->scheme[ColBg] = scheme[SchemeNorm][ColBg];
+				} else if (text[i] == 'r') {
+					int rx = atoi(text + ++i);
+					while (text[++i] != ',');
+					int ry = atoi(text + ++i);
+					while (text[++i] != ',');
+					int rw = atoi(text + ++i);
+					while (text[++i] != ',');
+					int rh = atoi(text + ++i);
+
+					drw_rect(drw, rx +x - 2 * sp, ry + vp / 2, rw, MIN(rh, bh - vp), 1, 0);
+				} else if (text[i] == 'f') {
+					x += atoi(text + ++i);
+				}
+			}
+
+			text = text + i + 1;
+			i=-1;
+			isCode = 0;
+		}
+	}
+
+	if (!isCode) {
+		w = TEXTW(text) - lrpad;
+		drw_text(drw, x - 2 * sp, 0, w, bh, 0, text, 0);
+	}
+
+	drw_setscheme(drw, scheme[SchemeNorm]);
+	free(p);
+
+	return ret;
+}
+
+
 void
 drawbar(Monitor *m)
 {
@@ -842,9 +955,7 @@ drawbar(Monitor *m)
 
 	/* draw status first so it can be overdrawn by tags later */
 	if (m == selmon) { /* status is only drawn on selected monitor */
-		drw_setscheme(drw, scheme[SchemeNorm]);
-		tw = TEXTW(stext) - lrpad / 2 + 2; /* 2px right padding */
-		drw_text(drw, m->ww - tw - stw - 2 * sp, 0, tw, bh, lrpad / 2 - 2, stext, 0);
+		tw = m->ww - drawstatusbar(m, bh, stext);
 	}
 
 	resizebarwin(m);
@@ -1061,16 +1172,6 @@ getstate(Window w)
 	return result;
 }
 
-unsigned int
-getsystraywidth()
-{
-	unsigned int w = 0;
-	Client *i;
-	if(showsystray)
-		for(i = systray->icons; i; w += i->w + systrayspacing, i = i->next) ;
-	return w ? w + systrayspacing : 1;
-}
-
 int
 gettextprop(Window w, Atom atom, char *text, unsigned int size)
 {
@@ -1260,6 +1361,8 @@ mappingnotify(XEvent *e)
 {
 	XMappingEvent *ev = &e->xmapping;
 
+  fprintf(stderr, "MappingNotify: request=%d\n", ev->request);
+
 	XRefreshKeyboardMapping(ev);
 	if (ev->request == MappingKeyboard)
 		grabkeys();
@@ -1271,12 +1374,6 @@ maprequest(XEvent *e)
 	static XWindowAttributes wa;
 	XMapRequestEvent *ev = &e->xmaprequest;
 
-	Client *i;
-	if ((i = wintosystrayicon(ev->window))) {
-		sendevent(i->win, netatom[Xembed], StructureNotifyMask, CurrentTime, XEMBED_WINDOW_ACTIVATE, 0, systray->win, XEMBED_EMBEDDED_VERSION);
-		resizebarwin(selmon);
-		updatesystray();
-	}
 
 	Client *i;
 	if ((i = wintosystrayicon(ev->window))) {
@@ -1418,17 +1515,6 @@ propertynotify(XEvent *e)
 		updatesystray();
 	}
 
-	if ((c = wintosystrayicon(ev->window))) {
-		if (ev->atom == XA_WM_NORMAL_HINTS) {
-			updatesizehints(c);
-			updatesystrayicongeom(c, c->w, c->h);
-		}
-		else
-			updatesystrayiconstate(c, ev);
-		resizebarwin(selmon);
-		updatesystray();
-	}
-
     if ((ev->window == root) && (ev->atom == XA_WM_NAME))
 		updatestatus();
 	else if (ev->state == PropertyDelete)
@@ -1493,31 +1579,10 @@ removesystrayicon(Client *i)
 }
 
 void
-removesystrayicon(Client *i)
-{
-	Client **ii;
-
-	if (!showsystray || !i)
-		return;
-	for (ii = &systray->icons; *ii && *ii != i; ii = &(*ii)->next);
-	if (ii)
-		*ii = i->next;
-	free(i);
-}
-
-void
 resize(Client *c, int x, int y, int w, int h, int interact)
 {
 	if (applysizehints(c, &x, &y, &w, &h, interact))
 		resizeclient(c, x, y, w, h);
-}
-
-void
-resizebarwin(Monitor *m) {
-	unsigned int w = m->ww;
-	if (showsystray && m == systraytomon(m) && !systrayonleft)
-		w -= getsystraywidth();
-	XMoveResizeWindow(dpy, m->barwin, m->wx + sp, m->by + vp, w - 2 * sp, bh);
 }
 
 void
@@ -1615,19 +1680,6 @@ resizemouse(const Arg *arg)
 }
 
 void
-resizerequest(XEvent *e)
-{
-	XResizeRequestEvent *ev = &e->xresizerequest;
-	Client *i;
-
-	if ((i = wintosystrayicon(ev->window))) {
-		updatesystrayicongeom(i, ev->width, ev->height);
-		resizebarwin(selmon);
-		updatesystray();
-	}
-}
-
-void
 restack(Monitor *m)
 {
 	Client *c;
@@ -1652,15 +1704,32 @@ restack(Monitor *m)
 	while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
 }
 
+// главный цикл
 void
 run(void)
 {
 	XEvent ev;
 	/* main event loop */
-	XSync(dpy, False);
-	while (running && !XNextEvent(dpy, &ev))
+	XSync(dpy, False); // дождаться выполнения всех запланированных в X11 операций
+  // дождаться события. Как поступит - передать обработчику, взяв его из handler
+	while (running && !XNextEvent(dpy, &ev)) {
+    if (ev.type >= xkbEventBase && ev.type < xkbEventBase + XkbNumberEvents) {
+
+      XkbEvent *xkbev = (XkbEvent *)&ev;
+
+      if (xkbev->any.xkb_type == XkbStateNotify) {
+        int group = xkbev->state.group;
+
+        if (group != last_xkb_group) {
+              last_xkb_group = group;
+              system("kill -SIGRTMIN+2 $(pidof dwmblocks)");
+          }
+        }
+        continue;
+    }
 		if (handler[ev.type])
 			handler[ev.type](&ev); /* call handler */
+  }
 }
 
 void
@@ -1828,7 +1897,7 @@ setup(void)
 	Atom utf8string;
 	struct sigaction sa;
 
-	/* do not transform children into zombies when they terminate */
+  	/* do not transform children into zombies when they terminate */
 	sigemptyset(&sa.sa_mask);
 	sa.sa_flags = SA_NOCLDSTOP | SA_NOCLDWAIT | SA_RESTART;
 	sa.sa_handler = SIG_IGN;
@@ -1879,14 +1948,32 @@ setup(void)
 	cursor[CurMove] = drw_cur_create(drw, XC_fleur);
 	/* init appearance */
 	scheme = ecalloc(LENGTH(colors), sizeof(Clr *));
+	scheme[LENGTH(colors)] = drw_scm_create(drw, colors[0], 3);
 	for (i = 0; i < LENGTH(colors); i++)
 		scheme[i] = drw_scm_create(drw, colors[i], 3);
+
 	/* init system tray */
 	updatesystray();
 	/* init bars */
 	updatebars();
 	updatestatus();
 	updatebarpos(selmon);
+
+  /* Подписка на XKB StateNotify */
+  int xkbErrorBase;
+  int major = XkbMajorVersion, minor = XkbMinorVersion;
+
+  if (!XkbQueryExtension(dpy, NULL, &xkbEventBase,
+                       &xkbErrorBase, &major, &minor)) {
+    fprintf(stderr, "dwm: XKB extension not available\n");
+  } else {
+    XkbSelectEventDetails(dpy, XkbUseCoreKbd,
+        XkbStateNotify,
+        XkbGroupStateMask,
+        XkbGroupStateMask);
+  }
+
+
 	/* supporting window for NetWMCheck */
 	wmcheckwin = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
 	XChangeProperty(dpy, wmcheckwin, netatom[NetWMCheck], XA_WINDOW, 32,
@@ -2580,16 +2667,6 @@ wintosystrayicon(Window w) {
 	return i;
 }
 
-Client *
-wintosystrayicon(Window w) {
-	Client *i = NULL;
-
-	if (!showsystray || !w)
-		return i;
-	for (i = systray->icons; i && i->win != w; i = i->next) ;
-	return i;
-}
-
 Monitor *
 wintomon(Window w)
 {
@@ -2659,22 +2736,6 @@ systraytomon(Monitor *m) {
 	return t;
 }
 
-Monitor *
-systraytomon(Monitor *m) {
-	Monitor *t;
-	int i, n;
-	if(!systraypinning) {
-		if(!m)
-			return selmon;
-		return m == selmon ? m : NULL;
-	}
-	for(n = 1, t = mons; t && t->next; n++, t = t->next) ;
-	for(i = 1, t = mons; t && t->next && i < systraypinning; i++, t = t->next) ;
-	if(systraypinningfailfirst && n < systraypinning)
-		return mons;
-	return t;
-}
-
 void
 zoom(const Arg *arg)
 {
@@ -2687,6 +2748,7 @@ zoom(const Arg *arg)
 	pop(c);
 }
 
+// точка входа.
 int
 main(int argc, char *argv[])
 {
@@ -2696,18 +2758,18 @@ main(int argc, char *argv[])
 		die("usage: dwm [-v]");
 	if (!setlocale(LC_CTYPE, "") || !XSupportsLocale())
 		fputs("warning: no locale support\n", stderr);
-	if (!(dpy = XOpenDisplay(NULL)))
+	if (!(dpy = XOpenDisplay(NULL))) // подключается к X11
 		die("dwm: cannot open display");
-	checkotherwm();
-	setup();
+	checkotherwm(); // проверяет, не запущен ли другой wm
+	setup(); // создает мониторы, панель, шрифты, курсоры и т.д.
 #ifdef __OpenBSD__
 	if (pledge("stdio rpath proc exec", NULL) == -1)
 		die("pledge");
 #endif /* __OpenBSD__ */
-	scan();
-	run();
-	cleanup();
-	XCloseDisplay(dpy);
+	scan(); // сканирует существующие окна в root-окне и добавляет их как клиенты (если они есть)
+	run(); // главный цикл
+	cleanup(); // удаляет ресурсы
+	XCloseDisplay(dpy); // Отключается от X11
 	return EXIT_SUCCESS;
 }
 
@@ -2773,3 +2835,13 @@ bstackhoriz(Monitor *m) {
 	}
 }
 
+static void
+dbg(const char *msg)
+{
+    int fd = open("/home/oleg/tmp/dwm-debug.log", O_WRONLY|O_CREAT|O_APPEND, 0644);
+    if (fd < 0) return;
+
+    write(fd, msg, strlen(msg));
+    write(fd, "\n", 1);
+    close(fd);
+}

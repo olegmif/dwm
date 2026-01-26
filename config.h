@@ -33,9 +33,11 @@ static const Rule rules[] = {
 	 *	WM_CLASS(STRING) = instance, class
 	 *	WM_NAME(STRING) = title
 	 */
-	/* class      instance    title       tags mask     isfloating   monitor */
-	{ "Gimp",     NULL,       NULL,       0,            1,           -1 },
-	{ "Firefox",  NULL,       NULL,       1 << 8,       0,           -1 },
+	/* class              instance    title       tags mask     isfloating  monitor x     y     w     h     floatborderpx*/
+	{ "Gimp",             NULL,       NULL,       0,            1,          -1, },
+	{ "Firefox",          NULL,       NULL,       1 << 8,       0,          -1, },
+  { "pulsemixer-float", NULL,       NULL,       0,            1,          -1,     510,  240,  900,  600,   5,},
+  { "mc-float",         NULL,       NULL,       0,            1,          -1,     80,   80,   1760, 920,   5,},
 };
 
 /* layout(s) */
@@ -71,6 +73,15 @@ static const char *dmenucmd[] = {
   "dmenu_run", "-m", dmenumon, "-fn", dmenufont, "-nb", col_gray1, "-nf", col_gray3, "-sb", col_cyan, "-sf", col_gray4, "-l", "10", NULL 
 };
 static const char *termcmd[]  = { "kitty", NULL };
+static const char *pulsemixercmd[] = {
+    "kitty", "--class", "pulsemixer-float", "--", "pulsemixer", NULL
+};
+static const char *mccmd[] = {
+    "kitty", "--class", "mc-float", "--", "mc", NULL
+};
+static const char *rangercmd[] = {
+    "kitty", "--class", "ranger", "--", "ranger", NULL
+};
 
 static const Key keys[] = {
 	/* modifier                     key        function        argument */
@@ -109,6 +120,9 @@ static const Key keys[] = {
 	TAGKEYS(                        XK_8,                      7)
 	TAGKEYS(                        XK_9,                      8)
 	{ MODKEY|ShiftMask,             XK_q,      quit,           {0} },
+  { MODKEY,                       XK_v,      spawn,          {.v = pulsemixercmd } },
+  { MODKEY,                       XK_e,      spawn,          {.v = mccmd }},
+  { MODKEY|ShiftMask,             XK_e,      spawn,          {.v = rangercmd }},
 };
 
 /* button definitions */
