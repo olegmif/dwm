@@ -273,7 +273,6 @@ static int xerrorstart(Display *dpy, XErrorEvent *ee);
 static void zoom(const Arg *arg);
 static void bstack(Monitor *m);
 static void bstackhoriz(Monitor *m);
-static void dbg(const char *msg);
 
 
 /* variables */
@@ -561,11 +560,8 @@ cleanup(void)
 
 	for (i = 0; i < CurLast; i++)
 		drw_cur_free(drw, cursor[i]);
-	for (i = 0; i < LENGTH(colors) +1; i++)
-    // здесь расхождение с diff
-    // там должно быть free(scheme[i]);
-		// drw_scm_free(drw, scheme[i], 3);
-    free(scheme[i]);
+	for (i = 0; i < LENGTH(colors) + 1; i++)
+		drw_scm_free(drw, scheme[i], 3);
 	free(scheme);
 	XDestroyWindow(dpy, wmcheckwin);
 	drw_free(drw);
@@ -903,14 +899,18 @@ drawstatusbar(Monitor *m, int bh, char* stext) {
 			x += w;
 
 			/* process code */
-			while (text[++i] != '^') {
+			while (text[++i] != '^' && text[i] != '\0') {
 				if (text[i] == 'c') {
+					if (strnlen(text + i + 1, 7) < 7)
+						break;
 					char buf[8];
 					memcpy(buf, (char*)text+i+1, 7);
 					buf[7] = '\0';
 					drw_clr_create(drw, &drw->scheme[ColFg], buf);
 					i += 7;
 				} else if (text[i] == 'b') {
+					if (strnlen(text + i + 1, 7) < 7)
+						break;
 					char buf[8];
 					memcpy(buf, (char*)text+i+1, 7);
 					buf[7] = '\0';
@@ -921,11 +921,14 @@ drawstatusbar(Monitor *m, int bh, char* stext) {
 					drw->scheme[ColBg] = scheme[SchemeNorm][ColBg];
 				} else if (text[i] == 'r') {
 					int rx = atoi(text + ++i);
-					while (text[++i] != ',');
+					while (text[i] && text[i] != ',') i++;
+					if (!text[i]) break;
 					int ry = atoi(text + ++i);
-					while (text[++i] != ',');
+					while (text[i] && text[i] != ',') i++;
+					if (!text[i]) break;
 					int rw = atoi(text + ++i);
-					while (text[++i] != ',');
+					while (text[i] && text[i] != ',') i++;
+					if (!text[i]) break;
 					int rh = atoi(text + ++i);
 
 					drw_rect(drw, rx +x - 2 * sp, ry + vp / 2, rw, MIN(rh, bh - vp), 1, 0);
@@ -933,6 +936,8 @@ drawstatusbar(Monitor *m, int bh, char* stext) {
 					x += atoi(text + ++i);
 				}
 			}
+			if (text[i] == '\0')
+				break;
 
 			text = text + i + 1;
 			i=-1;
@@ -1527,9 +1532,10 @@ propertynotify(XEvent *e)
 			updatesystrayiconstate(c, ev);
 		resizebarwin(selmon);
 		updatesystray();
+		return;
 	}
 
-    if ((ev->window == root) && (ev->atom == XA_WM_NAME))
+	if ((ev->window == root) && (ev->atom == XA_WM_NAME))
 		updatestatus();
 	else if (ev->state == PropertyDelete)
 		return; /* ignore */
@@ -1964,7 +1970,7 @@ setup(void)
 	cursor[CurResize] = drw_cur_create(drw, XC_sizing);
 	cursor[CurMove] = drw_cur_create(drw, XC_fleur);
 	/* init appearance */
-	scheme = ecalloc(LENGTH(colors), sizeof(Clr *));
+	scheme = ecalloc(LENGTH(colors) + 1, sizeof(Clr *));
 	scheme[LENGTH(colors)] = drw_scm_create(drw, colors[0], 3);
 	for (i = 0; i < LENGTH(colors); i++)
 		scheme[i] = drw_scm_create(drw, colors[i], 3);
@@ -2850,15 +2856,4 @@ bstackhoriz(Monitor *m) {
 				ty += HEIGHT(c);
 		}
 	}
-}
-
-static void
-dbg(const char *msg)
-{
-    int fd = open("/home/oleg/tmp/dwm-debug.log", O_WRONLY|O_CREAT|O_APPEND, 0644);
-    if (fd < 0) return;
-
-    write(fd, msg, strlen(msg));
-    write(fd, "\n", 1);
-    close(fd);
 }
