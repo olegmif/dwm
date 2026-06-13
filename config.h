@@ -8,7 +8,7 @@ static const unsigned int systrayonleft = 0;    /* 0: systray in the right corne
 static const unsigned int systrayspacing = 2;   /* systray spacing */
 static const int systraypinningfailfirst = 1;   /* 1: if pinning fails, display systray on the first monitor, False: display systray on the last monitor*/
 static const int showsystray        = 1;        /* 0 means no systray */
-static const int showbar            = 1;        /* 0 means no bar */
+static const int showbar            = 0;        /* 0 means no bar */
 static const int topbar             = 1;        /* 0 means bottom bar */
 static const int vertpad            = 0;        /* vertical padding of bar */
 static const int sidepad            = 0;        /* horizontal padding of bar */
@@ -38,6 +38,9 @@ static const Rule rules[] = {
 	{ "Firefox",          NULL,       NULL,       1 << 8,       0,          -1, },
   { "pulsemixer-float", NULL,       NULL,       0,            1,          -1,     510,  240,  900,  600,   5,},
   { "mc-float",         NULL,       NULL,       0,            1,          -1,     80,   80,   1760, 920,   5,},
+  { "w-float",          NULL,       NULL,       0,            1,          -1,     510,  240,  900,  600,   5,},
+  { "p-float",          NULL,       NULL,       0,            1,          -1,     660,  340,  600,  400,   5,},
+  { "n-float",          NULL,       NULL,       0,            1,          -1,     510,  240,  900,  600,   5,},
 };
 
 /* layout(s) */
@@ -82,10 +85,20 @@ static const char *mccmd[] = {
 static const char *rangercmd[] = {
     "kitty", "--class", "ranger", "--", "ranger", NULL
 };
+static const char *wcmd[] = {
+    "kitty", "--class", "w-float", "--", "w", NULL
+};
+static const char *pcmd[] = {
+    "kitty", "--class", "p-float", "--", "p", NULL
+};
+static const char *ncmd[] = {
+    "kitty", "--class", "n-float", "--", "n", NULL
+};
 
 static const Key keys[] = {
 	/* modifier                     key        function        argument */
-	{ MODKEY,                       XK_p,      spawn,          {.v = dmenucmd } },
+	{ MODKEY,                       XK_p,      spawn,          {.v = pcmd } },
+	{ MODKEY|ShiftMask,             XK_p,      spawn,          {.v = dmenucmd } },
 	{ MODKEY|ShiftMask,             XK_Return, spawn,          {.v = termcmd } },
 	{ MODKEY,                       XK_b,      togglebar,      {0} },
 	{ MODKEY,                       XK_j,      focusstack,     {.i = +1 } },
@@ -123,6 +136,8 @@ static const Key keys[] = {
   { MODKEY,                       XK_v,      spawn,          {.v = pulsemixercmd } },
   { MODKEY,                       XK_e,      spawn,          {.v = mccmd }},
   { MODKEY|ShiftMask,             XK_e,      spawn,          {.v = rangercmd }},
+  { MODKEY,                       XK_w,      spawn,          {.v = wcmd }},
+  { MODKEY,                       XK_n,      spawn,          {.v = ncmd }},
 };
 
 /* button definitions */
@@ -140,5 +155,23 @@ static const Button buttons[] = {
 	{ ClkTagBar,            0,              Button3,        toggleview,     {0} },
 	{ ClkTagBar,            MODKEY,         Button1,        tag,            {0} },
 	{ ClkTagBar,            MODKEY,         Button3,        toggletag,      {0} },
+};
+
+static const char *ipcsockpath = "/tmp/dwm.sock";
+static IPCCommand ipccommands[] = {
+  IPCCOMMAND(  view,                1,      {ARG_TYPE_UINT}   ),
+  IPCCOMMAND(  toggleview,          1,      {ARG_TYPE_UINT}   ),
+  IPCCOMMAND(  tag,                 1,      {ARG_TYPE_UINT}   ),
+  IPCCOMMAND(  toggletag,           1,      {ARG_TYPE_UINT}   ),
+  IPCCOMMAND(  tagmon,              1,      {ARG_TYPE_UINT}   ),
+  IPCCOMMAND(  focusmon,            1,      {ARG_TYPE_SINT}   ),
+  IPCCOMMAND(  focusstack,          1,      {ARG_TYPE_SINT}   ),
+  IPCCOMMAND(  zoom,                1,      {ARG_TYPE_NONE}   ),
+  IPCCOMMAND(  incnmaster,          1,      {ARG_TYPE_SINT}   ),
+  IPCCOMMAND(  killclient,          1,      {ARG_TYPE_SINT}   ),
+  IPCCOMMAND(  togglefloating,      1,      {ARG_TYPE_NONE}   ),
+  IPCCOMMAND(  setmfact,            1,      {ARG_TYPE_FLOAT}  ),
+  IPCCOMMAND(  setlayoutsafe,       1,      {ARG_TYPE_PTR}    ),
+  IPCCOMMAND(  quit,                1,      {ARG_TYPE_NONE}   )
 };
 
